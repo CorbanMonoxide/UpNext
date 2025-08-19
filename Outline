@@ -1,0 +1,215 @@
+UpNext — Expanded Requirements and Delivery Outline
+
+Summary
+- App: Concert calendar tracker.
+- Stack: Flutter (mobile-first, Android/iOS; optional Web later), Go backend (REST), MongoDB.
+- Core value: Discover nearby concerts, manage/share lists, countdowns and reminders.
+
+Goals & Non‑Goals
+- Goals: Fast local discovery, simple list sharing, reliable reminders, scalable ingestion from external providers, future social aspects, Artist page, Setlist.fm connections, Venue profiles and reviews, profile pages for public sharing
+- Non‑Goals (MVP): Ticket purchasing in-app
+
+Personas
+- Explorer: Finds shows nearby by date/genre.
+- Planner: Curates lists for friends and tracks reminders.
+- Follower: Subscribes to favorite artists/venues and gets alerts.
+
+Target Platforms (MVP → Later)
+- MVP: Android, iOS.
+- Later: Web (Flutter web), tablet-optimized layouts.
+
+Functional Requirements
+1) Event Discovery
+- Location-based search by current GPS or chosen city; adjustable radius (5–200 km).
+- Filters: date range, weekday/weekend, price range (if available), genre, artist, venue, distance.
+- Views: list, map (clustered pins), calendar grid (month), and detail view.
+- Event detail: title, artists, venue with address/map, door/show time, age limits, price hints, ticket links, provider source, tour name (if known), average ticket price (computed from providers if available), setlist link (setlist.fm or source), official ticket link(s) and resale link(s) with provider name, shareable deep link.
+- Local timezone normalization; show “doors in X days/hours”.
+- Infinite scroll with pagination.
+
+2) Lists (Collections)
+- Create named lists (e.g., “Fall 2025 Shows”).
+- Add/remove events to lists, reorder, add notes.
+- Sharing: public read-only link (tokenized), private (invite via link), unlisted.
+- Collaboration: optional co-edit with role (owner/editor) in V1.1; MVP can be owner-only.
+- Export list to calendar (ICS) and share to apps.
+ - System list: “Attended” (read-only name) for concerts the user has been to.
+ - Quick add from artist and event pages: buttons for “I’ve been” (adds to Attended with attended date defaulting to event date, editable) and “Add to List…”.
+ - Items carry metadata: status [saved|attended], attendedAt (date), note, order; future (optional): rating, photos.
+ - Profile page surfaces events from user’s lists; entries are clickable and mirror artist-event row layout.
+
+3) Reminders & Countdown
+- Per-event reminders: default (24h, 3h), custom offsets (e.g., 2 weeks, 1h before).
+- Local notifications via device; background scheduling resilient to reboot/timezone changes.
+- Optional push notifications via FCM/APNs (post-auth).
+- Snooze (15m/1h/24h); mark as done.
+- Countdown widget per event; aggregated “Next Up” tile.
+
+4) Favorites & Follows
+- Follow artists and venues; get new-show alerts within chosen radius.
+- Manage favorites; digest notification (daily/weekly) option.
+
+5) Accounts & Auth
+- Sign in with email/password (passwordless/email link optional later), Apple, Google.
+- Anonymous mode allowed; upgrade to account keeps local data.
+- JWT access + rotating refresh tokens; device sessions list & revoke.
+
+6) Location & Permissions
+- Handle denied/limited location gracefully; allow manual city/ZIP entry.
+- Cache last known location; foreground-only access by default.
+
+7) Offline & Caching
+- Cache last search results and lists; read-only offline view.
+- Retry/queue list edits and reminder changes when back online.
+
+8) Settings & Privacy
+- Radius default, units (mi/km), notification preferences, data export/delete account.
+
+9) Accessibility & i18n
+- A11y labels, text scaling, high contrast; English MVP, i18n-ready.
+11) Artist Pages
+- Artist overview page per artist with:
+	- Header: name, image (if available), short synopsis (sourced with proper attribution), follow button.
+	- Concerts section: all known upcoming (default) and past (toggle) concerts; each row shows date, venue, city, tour (if known), price badge (avg/low), and action buttons: “I’ve been”, “Add to List…”, “Share”.
+	- Each concert links to full event detail page.
+- Synopsis sourcing (MVP options to research):
+	- Wikipedia summary via REST with attribution (CC BY-SA) or via Wikidata/MusicBrainz mapping.
+	- Last.fm artist bio (requires API key and attribution; licensing review).
+	- MusicBrainz as canonical ID graph; images via Wikimedia or fanart.tv where permitted.
+- Caching and moderation: store sanitized synopsis text, source, lastCheckedAt; allow manual override/takedown.
+
+
+10) Profile Pages (Public Concert Page)
+- Each user has a profile page that acts as their primary concert list. By default, it surfaces their pinned list (or “Upcoming I’m Attending”).
+- Profile customization: handle (username), display name, bio, avatar, theme (light/dark + accent), optional location tag.
+- Visibility controls: profile and individual lists can be public, unlisted (link-only), or private. Public profiles are discoverable by handle.
+- Viewing: users can view each other’s profiles via handle or share link; non-app users can view an exported image.
+- Export to image: generate a mobile-friendly image of the profile (cover, avatar, handle, top N upcoming events with dates/venues, QR code linking to profile). Aspect ratios: 9:16, 4:5, 1:1; light/dark themes.
+- Share flow: share image via native sheet; include app deep link and web fallback URL.
+- Privacy: exported image excludes private/unlisted items; includes “as of <date>” timestamp.
+- Optional later: profile sections (Attending, Considering, Past), badges, link-in-bio style buttons.
+
+Non‑Functional Requirements
+- Performance: P95 search API < 600 ms (cached paths < 200 ms); app TTI < 2.5 s warm, < 5 s cold.
+- Availability: 99.9% backend.
+- Scalability: 10k DAU MVP; 100 req/s sustained; burst 500 req/s with caching.
+- Security: OWASP top 10, field-level validation, rate limiting, audit logs for auth.
+- Privacy: Minimize PII, GDPR/CCPA-ready delete/export.
+- Observability: structured logs, metrics, trace IDs; alerting on SLO breaches.
+
+Architecture
+- Client: Flutter, state management: Riverpod or Bloc (assume Riverpod), go_router, dio/http, freezed/json_serializable, geolocator, google_maps_flutter (or mapbox), flutter_local_notifications, firebase_messaging (optional push).
+- Backend: Go (Gin or Echo; assume Gin), OpenAPI-first, MongoDB official driver, Redis (cache + rate limit), worker/scheduler (cron) for ingestion and reminders, FCM/APNs senders.
+- Infra: Docker for API; MongoDB + Redis; NGINX reverse proxy; Terraform/IaC later. CI/CD via GitHub Actions.
+
+Data Model (MongoDB)
+ users { _id, email (unique, optional for anon), providers[], name, createdAt, updatedAt, settings{radius, units, notifPrefs}, roles[], deletedAt?, handle (unique, case-insensitive), bio?, avatarUrl?, theme:{mode, accent?}, profileVisibility:[private|unlisted|public], pinnedListId? }
+- sessions { _id, userId, refreshHash, ua, ip, createdAt, revokedAt? } with TTL for idle.
+ artists { _id, name, normalized, external[{provider, id}], synopsis?:{ text, source:{name,url,license?}, lastCheckedAt }, images?:[{url, source?}] }
+- venues { _id, name, address{line1, city, state, country, postal}, location{type:"Point", coordinates:[lng,lat]}, external[] }
+ events { _id, title, artists[], venueId, startsAt, doorsAt?, tz, priceMin?, priceMax?, currency?, priceAvg?, priceFromProviders?:[{provider,name,faceValueMin?,faceValueMax?,resaleMin?,resaleMax?,currency}], tourName?, genres[], source{provider,id,url}, setlist?:{provider?:"setlistfm", id?, url?}, updatedAt, status, isAllAges?, images[], popularity? }
+- lists { _id, userId, name, visibility: [private|unlisted|public], shareToken?, editors[], createdAt, updatedAt }
+ list_items { _id, listId, eventId, note?, order, addedAt, status?:["saved"|"attended"], attendedAt?:date }
+- follows { _id, userId, type: [artist|venue], refId, createdAt }
+- reminders { _id, userId, eventId, offsets:[seconds], scheduledAt[], status, lastFiredAt? }
+- notif_queue { _id, userId, eventId, channel:[local|push|email], fireAt, payload, status }
+- audits { _id, userId?, action, entity, entityId, meta, at }
+
+Indexes
+- events: 2dsphere on location (via venue.location), compound on (startsAt, venueId), provider unique on source.provider+source.id.
+- venues: 2dsphere on location; name normalized text index.
+- artists: unique(name+provider?) or normalized text index.
+- lists: userId; list_items: listId+order; reminders: userId+eventId unique; notif_queue: fireAt TTL/priority index.
+- sessions: userId+createdAt; unique refreshHash.
+ - users: unique(handle) with case-insensitive collation; sparse index on pinnedListId.
+ - events: index on (artists, startsAt) to power artist page listings; optional index on (tourName, startsAt).
+
+API (REST v1)
+- Auth: POST /v1/auth/signup, /signin, /signout, /refresh, GET /v1/auth/sessions, DELETE /v1/auth/sessions/{id}.
+- Users: GET /v1/me, PUT /v1/me, DELETE /v1/me (GDPR delete), GET /v1/me/export.
+- Events: GET /v1/events?lat&lng&radius&from&to&genre&artistId&venueId&page&limit&sort; GET /v1/events/{id}.
+	 - Convenience: POST /v1/events/{id}/attended (adds to user’s Attended with status=attended, attendedAt=event date unless provided).
+- Lists: POST /v1/lists, GET /v1/lists, GET /v1/lists/{id}, PUT /v1/lists/{id}, DELETE /v1/lists/{id}.
+- List items: POST /v1/lists/{id}/items, PATCH /v1/lists/{id}/items/{itemId}, DELETE /v1/lists/{id}/items/{itemId}.
+- Shares: POST /v1/lists/{id}/share (create/revoke tokens), GET /v1/share/{token} (public view).
+- Reminders: POST /v1/reminders, GET /v1/reminders, GET /v1/reminders/{id}, PUT /v1/reminders/{id}, DELETE /v1/reminders/{id}.
+- Follows: POST /v1/follows, DELETE /v1/follows/{type}/{refId}, GET /v1/follows.
+ - Lookup: GET /v1/venues, /v1/artists (search autocomplete), /v1/genres.
+ - Artists: GET /v1/artists/{id}, GET /v1/artists/{id}/events?past=false&page&limit (sorted by startsAt); synopsis in artist payload with source attribution.
+- Admin: POST /v1/admin/reindex, GET /v1/admin/health.
+ - Profiles: GET /v1/profiles/{handle} (public), GET /v1/profiles/{handle}/events (public, filtered to visible), PUT /v1/me/profile (update handle/bio/avatar/theme/visibility/pinnedListId), POST /v1/uploads/avatar (pre-signed upload).
+ - Export: POST /v1/me/profile/export (request OG/static image generation, optional later). MVP does client-side image generation in app.
+
+Event Ingestion
+- Providers: Ticketmaster Discovery, SeatGeek, Songkick (select 1–2 for MVP based on API terms/coverage).
+- Strategy: Scheduled pulls per metro/lat-lng grid for next 90 days; dedupe by (provider,id); normalize schema; backfill nightly.
+- Rate limiting: provider-specific quotas; backoff and caching; ETag/If-Modified-Since when available.
+
+Security
+- JWT with RS256; refresh rotation; IP/UA binding; token blacklist on rotation failures.
+- Input validation with JSON schema; field whitelisting; strict CORS.
+- Secret management via env/KeyVault; no secrets in repo.
+ - Public profile endpoints are rate-limited and cached; only public/unlisted content is exposed by design.
+
+Mobile App UX (MVP)
+- Onboarding: permissions, choose radius, sign-in or continue as guest.
+- Home: “Near You” list, search bar, date chip filters, map toggle.
+- Event Detail: full info, add to list, set reminder, share.
+- Lists: my lists, list detail with reorder and notes, share token link.
+- Reminders: upcoming reminders list; snooze/done.
+ - Profile: account, favorites, settings; profile editor (handle, bio, avatar, theme, pinned list); profile preview and public view by handle; export-to-image in share sheet (choose aspect ratio, includes QR code and deeplink).
+ - Artist Page: header with name/image/synopsis + follow; concert list with date, venue, city, tour badge, price badge; actions per row: “I’ve been”, “Add to List…”, “Share”. Tap row to event detail.
+ - Event Page: enrich with tour name, average ticket price, setlist link, official and resale links; buttons: “I’ve been”, “Add to List…”, “Share”.
+ - Quick Add flows: “I’ve been” posts attendance and shows toast + undo; “Add to List…” opens list picker/creator and adds item with status=saved.
+
+Tech Choices (assumptions)
+- Flutter: Riverpod, dio, freezed, go_router, intl, geolocator, maps, local_notifications; Firebase Core + Messaging optional.
+- Go: Gin, zap logging, validator.v10, jwt, swaggo/openapi, mongo-driver, redis, cron, gotest+testify.
+
+Delivery Plan
+- Phase 0: Repo setup, CI, base scaffolds (Go service, Flutter app), Docker Compose (Mongo, Redis), OpenAPI stub.
+ - Phase 1 (MVP): Lists first (create/add/remove/reorder/notes, system Attended), Discovery (list+detail), Artist page (basic: name + upcoming concerts), quick add to Attended and to lists from artist/event pages, reminders (local), auth (email+Google/Apple).
+- Phase 2: Public profile pages (handle + pinned list), client-side export-to-image, public profile endpoints, map view, push notifications, second provider, digest emails.
+- Phase 3: Collaboration on lists, web app, calendar grid; profile sections and advanced customization; optional server-side OG image generation.
+
+Milestones & Acceptance
+- M0: Builds run; health check green; Compose up works; baseline tests green.
+- M1: Search returns events from provider seed; P95 < 800 ms in dev.
+- M2: Create list, add items, share link opens read-only web view (or in-app viewer) with token.
+- M3: Local reminders fire reliably across restarts/timezone change; 0 crashes in a week of testflight/internal.
+
+Testing Strategy
+- Go: unit for handlers/services; integration with test Mongo; contract tests from OpenAPI; e2e smoke with docker.
+ - Flutter: unit + widget tests for search/list/detail; golden tests for key screens and profile image export; integration tests for sign-in, profile edit, reminder flow, quick add to Attended/List from artist and event pages.
+ - Data validation: test artist synopsis ingestion and source attribution; event price aggregation logic; visibility filters on profile and artist pages.
+
+DevEx & CI/CD
+- GitHub Actions: lint+test on PR; build Go binary and Docker image; build Flutter APK (debug) on main; tag release → build production artifacts.
+- Environments: dev (Compose), staging, prod; feature flags in config collection.
+
+Local Development (quick start)
+- Requirements: Flutter SDK, Go 1.22+, Docker Desktop.
+- Compose: Mongo, Redis; seed script for indexes. API runs on :8080; Flutter points to http://localhost:8080.
+- .env examples for API keys and DB URIs.
+
+Open Questions
+- Which provider(s) first? License/ToS constraints?
+- Push notifications scope in MVP?
+- Web read-only share in MVP or app-deep-link only?
+- Payments/ticketing affiliate links?
+- Map provider (Google vs Mapbox) based on cost.
+ - Username policy (length, allowed chars, reserved words), handle change limits, and redirect strategy.
+ - Single pinned list vs. multiple profile sections in MVP?
+ - Do we need server-side OG image rendering for social previews now, or is client-side sufficient?
+ - Content moderation/reporting for public profiles?
+ - Licensing for artist bios (Wikipedia/Last.fm) and setlists (setlist.fm API ToS); required attribution text/links; caching terms.
+ - Price data: derive average from which providers? How to label as estimate vs. exact? Currency normalization.
+
+Risks
+- Provider rate limits and coverage; geospatial query cost; notification reliability on OEM-optimized Android; Apple Sign In review requirements.
+ - Privacy leaks if visibility checks are incorrect on public profile endpoints; impersonation/username squatting.
+ - Licensing and attribution compliance for bios and setlists; potential takedown requests.
+ - Price accuracy perception if provider data is incomplete; user confusion between face value vs. resale.
+
+Out-of-Scope (for now)
+- In-app ticket purchase; social timelines; reviews/ratings; complex recommendation engine.
