@@ -1,0 +1,66 @@
+# UpNext - Git ignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs / editors
+.vscode/
+.idea/
+*.iml
+
+# Flutter / Dart
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+generated_plugin_registrant.dart
+build/
+pubspec.lock
+
+# iOS/Android build artifacts
+**/build/
+android/.gradle/
+android/.idea/
+ios/Pods/
+ios/Runner.xcworkspace/
+ios/Flutter/Flutter.framework
+*.xcworkspace
+*.xcarchive
+*.xcuserstate
+
+# Go build outputs
+/api/server
+/api/*.exe
+/api/*.dll
+/api/*.so
+/api/*.dylib
+bin/
+vendor/
+
+# Node
+node_modules/
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Docker / local volumes
+docker-compose.override.yml
+/mongo_data/
+/data/db/
+
+# Logs, temp
+*.log
+*.tmp
+*.swp
+*~
+
+# Coverage / test
+coverage/
+coverage.lcov
+
+# Misc
+*.bak

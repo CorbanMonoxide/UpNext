@@ -13,6 +13,7 @@ Personas
 - Explorer: Finds shows nearby by date/genre.
 - Planner: Curates lists for friends and tracks reminders.
 - Follower: Subscribes to favorite artists/venues and gets alerts.
+- Social: View 
 
 Target Platforms (MVP → Later)
 - MVP: Android, iOS.
@@ -72,11 +73,13 @@ Functional Requirements
 	- Header: name, image (if available), short synopsis (sourced with proper attribution), follow button.
 	- Concerts section: all known upcoming (default) and past (toggle) concerts; each row shows date, venue, city, tour (if known), price badge (avg/low), and action buttons: “I’ve been”, “Add to List…”, “Share”.
 	- Each concert links to full event detail page.
-- Synopsis sourcing (MVP options to research):
-	- Wikipedia summary via REST with attribution (CC BY-SA) or via Wikidata/MusicBrainz mapping.
-	- Last.fm artist bio (requires API key and attribution; licensing review).
-	- MusicBrainz as canonical ID graph; images via Wikimedia or fanart.tv where permitted.
-- Caching and moderation: store sanitized synopsis text, source, lastCheckedAt; allow manual override/takedown.
+- Synopsis sourcing (MVP — chosen): Wikipedia via Wikidata/MusicBrainz mapping with CC BY-SA attribution.
+	- Flow: Resolve artist in MusicBrainz → MBID → Wikidata QID → Wikipedia title → fetch Wikipedia REST /page/summary for plain-text extract.
+	- Fallbacks: if no Wikidata link, try MusicBrainz URL relationships to Wikipedia; final fallback is direct Wikipedia search by name with disambiguation heuristics.
+	- Attribution: show “Bio from Wikipedia” with a link to the specific article; store source name/url/license for compliance.
+	- Images: where permitted, use Wikimedia lead image/thumbnail; ensure license suitability; otherwise omit.
+ - Caching and moderation: store sanitized synopsis text, source, lastCheckedAt; allow manual override/takedown.
+ - Refresh policy: refresh every 14 days or on detected artist rename/merge; admin manual refresh supported.
 
 
 10) Profile Pages (Public Concert Page)
@@ -105,7 +108,7 @@ Architecture
 Data Model (MongoDB)
  users { _id, email (unique, optional for anon), providers[], name, createdAt, updatedAt, settings{radius, units, notifPrefs}, roles[], deletedAt?, handle (unique, case-insensitive), bio?, avatarUrl?, theme:{mode, accent?}, profileVisibility:[private|unlisted|public], pinnedListId? }
 - sessions { _id, userId, refreshHash, ua, ip, createdAt, revokedAt? } with TTL for idle.
- artists { _id, name, normalized, external[{provider, id}], synopsis?:{ text, source:{name,url,license?}, lastCheckedAt }, images?:[{url, source?}] }
+artists { _id, name, normalized, external[{provider, id}], ids?:{ mbid?, wikidataId?, wikipediaTitle? }, synopsis?:{ text, source:{name,url,license?}, lastCheckedAt }, images?:[{url, source?}] }
 - venues { _id, name, address{line1, city, state, country, postal}, location{type:"Point", coordinates:[lng,lat]}, external[] }
  events { _id, title, artists[], venueId, startsAt, doorsAt?, tz, priceMin?, priceMax?, currency?, priceAvg?, priceFromProviders?:[{provider,name,faceValueMin?,faceValueMax?,resaleMin?,resaleMax?,currency}], tourName?, genres[], source{provider,id,url}, setlist?:{provider?:"setlistfm", id?, url?}, updatedAt, status, isAllAges?, images[], popularity? }
 - lists { _id, userId, name, visibility: [private|unlisted|public], shareToken?, editors[], createdAt, updatedAt }
@@ -118,7 +121,7 @@ Data Model (MongoDB)
 Indexes
 - events: 2dsphere on location (via venue.location), compound on (startsAt, venueId), provider unique on source.provider+source.id.
 - venues: 2dsphere on location; name normalized text index.
-- artists: unique(name+provider?) or normalized text index.
+- artists: unique(name+provider?) or normalized text index; sparse unique index on ids.mbid.
 - lists: userId; list_items: listId+order; reminders: userId+eventId unique; notif_queue: fireAt TTL/priority index.
 - sessions: userId+createdAt; unique refreshHash.
  - users: unique(handle) with case-insensitive collation; sparse index on pinnedListId.
@@ -135,8 +138,9 @@ API (REST v1)
 - Reminders: POST /v1/reminders, GET /v1/reminders, GET /v1/reminders/{id}, PUT /v1/reminders/{id}, DELETE /v1/reminders/{id}.
 - Follows: POST /v1/follows, DELETE /v1/follows/{type}/{refId}, GET /v1/follows.
  - Lookup: GET /v1/venues, /v1/artists (search autocomplete), /v1/genres.
- - Artists: GET /v1/artists/{id}, GET /v1/artists/{id}/events?past=false&page&limit (sorted by startsAt); synopsis in artist payload with source attribution.
+ - Artists: GET /v1/artists/{id}, GET /v1/artists/{id}/events?past=false&page&limit (sorted by startsAt); payload includes ids (mbid, wikidataId, wikipediaTitle) and synopsis with source attribution.
 - Admin: POST /v1/admin/reindex, GET /v1/admin/health.
+ - Admin (artists): POST /v1/admin/artists/{id}/refresh-bio (re-run Wikipedia enrichment).
  - Profiles: GET /v1/profiles/{handle} (public), GET /v1/profiles/{handle}/events (public, filtered to visible), PUT /v1/me/profile (update handle/bio/avatar/theme/visibility/pinnedListId), POST /v1/uploads/avatar (pre-signed upload).
  - Export: POST /v1/me/profile/export (request OG/static image generation, optional later). MVP does client-side image generation in app.
 
@@ -144,6 +148,12 @@ Event Ingestion
 - Providers: Ticketmaster Discovery, SeatGeek, Songkick (select 1–2 for MVP based on API terms/coverage).
 - Strategy: Scheduled pulls per metro/lat-lng grid for next 90 days; dedupe by (provider,id); normalize schema; backfill nightly.
 - Rate limiting: provider-specific quotas; backoff and caching; ETag/If-Modified-Since when available.
+
+Artist Enrichment (Bios)
+- Resolver: use MusicBrainz as canonical ID (MBID). On artist creation/update, resolve MBID and enrich with Wikidata/Wikipedia.
+- Fetch: from MBID → Wikidata QID → English Wikipedia title → Wikipedia REST /page/summary; sanitize to plain text and cap length.
+- Cache & TTL: store text + source; refresh every ~14 days or on rename/merge; exponential backoff on failures; respect API limits.
+- Compliance: display “Bio from Wikipedia” and link to article; store source.license=CC BY-SA and source.url.
 
 Security
 - JWT with RS256; refresh rotation; IP/UA binding; token blacklist on rotation failures.
@@ -159,6 +169,7 @@ Mobile App UX (MVP)
 - Reminders: upcoming reminders list; snooze/done.
  - Profile: account, favorites, settings; profile editor (handle, bio, avatar, theme, pinned list); profile preview and public view by handle; export-to-image in share sheet (choose aspect ratio, includes QR code and deeplink).
  - Artist Page: header with name/image/synopsis + follow; concert list with date, venue, city, tour badge, price badge; actions per row: “I’ve been”, “Add to List…”, “Share”. Tap row to event detail.
+ 	- Bio attribution UI: small caption “Bio from Wikipedia” with a link to the article.
  - Event Page: enrich with tour name, average ticket price, setlist link, official and resale links; buttons: “I’ve been”, “Add to List…”, “Share”.
  - Quick Add flows: “I’ve been” posts attendance and shows toast + undo; “Add to List…” opens list picker/creator and adds item with status=saved.
 
@@ -182,6 +193,7 @@ Testing Strategy
 - Go: unit for handlers/services; integration with test Mongo; contract tests from OpenAPI; e2e smoke with docker.
  - Flutter: unit + widget tests for search/list/detail; golden tests for key screens and profile image export; integration tests for sign-in, profile edit, reminder flow, quick add to Attended/List from artist and event pages.
  - Data validation: test artist synopsis ingestion and source attribution; event price aggregation logic; visibility filters on profile and artist pages.
+ - Enrichment: verify MBID→Wikidata→Wikipedia resolution, summary fetch, sanitization, and attribution rendering.
 
 DevEx & CI/CD
 - GitHub Actions: lint+test on PR; build Go binary and Docker image; build Flutter APK (debug) on main; tag release → build production artifacts.
@@ -202,7 +214,7 @@ Open Questions
  - Single pinned list vs. multiple profile sections in MVP?
  - Do we need server-side OG image rendering for social previews now, or is client-side sufficient?
  - Content moderation/reporting for public profiles?
- - Licensing for artist bios (Wikipedia/Last.fm) and setlists (setlist.fm API ToS); required attribution text/links; caching terms.
+ - Licensing for artist bios (Wikipedia) and setlists (setlist.fm API ToS); required attribution text/links; caching terms.
  - Price data: derive average from which providers? How to label as estimate vs. exact? Currency normalization.
 
 Risks
