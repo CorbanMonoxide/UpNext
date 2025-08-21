@@ -1,0 +1,301 @@
+openapi: 3.0.3
+info:
+  title: UpNext API
+  version: "0.1.0"
+  description: |
+    Minimal spec for the current POC endpoints. Lists artists and events from MongoDB.
+servers:
+  - url: http://localhost:8080
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                example:
+                  status: ok
+  /api/artists:
+    get:
+      summary: List artists
+      operationId: listArtists
+      responses:
+        '200':
+          description: A list of artists
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Artist'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/artists/{id}:
+    get:
+      summary: Get artist by id
+      operationId: getArtist
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Mongo ObjectId hex string
+      responses:
+        '200':
+          description: Artist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Artist'
+        '404':
+          description: Not found
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/artists/{id}/events:
+    get:
+      summary: List events for an artist
+      operationId: listArtistEvents
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Mongo ObjectId hex string
+        - in: query
+          name: past
+          schema:
+            type: boolean
+          description: When true, returns past events (most recent first). Default false (upcoming).
+      responses:
+        '200':
+          description: Events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/events:
+    get:
+      summary: List events
+      operationId: listEvents
+      responses:
+        '200':
+          description: A list of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/events/{id}:
+    get:
+      summary: Get event by id
+      operationId: getEvent
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Mongo ObjectId hex string
+      responses:
+        '200':
+          description: Event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '404':
+          description: Not found
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/lists:
+    get:
+      summary: List lists
+      operationId: listLists
+      responses:
+        '200':
+          description: Lists
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/List'
+    post:
+      summary: Create list
+      operationId: createList
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+              required: [name]
+      responses:
+        '201':
+          description: Created
+  /api/lists/{id}:
+    get:
+      summary: Get list by id
+      operationId: getList
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/List'
+  /api/lists/{id}/items:
+    get:
+      summary: List list items
+      operationId: listListItems
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ListItem'
+    post:
+      summary: Add item to list
+      operationId: addListItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                eventId:
+                  type: string
+                status:
+                  type: string
+                  enum: [saved, attended]
+                note:
+                  type: string
+                attendedAt:
+                  type: string
+                  format: date-time
+              required: [eventId]
+      responses:
+        '201':
+          description: Created
+components:
+  schemas:
+    Artist:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Document id
+          example: 64f1a2b3c4d5e6f7a8b9c0d1
+        name:
+          type: string
+        synopsis:
+          $ref: '#/components/schemas/Synopsis'
+      required: [id, name]
+    Synopsis:
+      type: object
+      properties:
+        text:
+          type: string
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Document id
+          example: 64f1a2b3c4d5e6f7a8b9c0d1
+        title:
+          type: string
+        startsAt:
+          type: string
+          format: date-time
+        tourName:
+          type: string
+      required: [id, title]
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    List:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        key:
+          type: string
+        isSystem:
+          type: boolean
+    ListItem:
+      type: object
+      properties:
+        id:
+          type: string
+        listId:
+          type: string
+        eventId:
+          type: string
+        status:
+          type: string
+          enum: [saved, attended]
+        note:
+          type: string
+        attendedAt:
+          type: string
+          format: date-time
